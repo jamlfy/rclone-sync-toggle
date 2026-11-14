@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -20,6 +21,7 @@ type ConnectorProfile struct {
 	Name         string
 	Remote       string
 	Mode         string
+	Enabled      bool
 	LocalDir     string
 	VirtualMount string
 	VirtualItems []string
@@ -72,6 +74,7 @@ func LoadProfiles() ([]*ConnectorProfile, error) {
 				Name:        sectionName,
 				Remote:      sectionName + ":/",
 				Mode:        "hybrid",
+				Enabled:     true,
 				BisyncFlags: DefaultBisyncFlags,
 				MountFlags:  DefaultMountFlags,
 			}
@@ -88,6 +91,10 @@ func LoadProfiles() ([]*ConnectorProfile, error) {
 				current.Remote = val
 			case "mode":
 				current.Mode = val
+			case "enabled":
+				if enabled, err := strconv.ParseBool(val); err == nil {
+					current.Enabled = enabled
+				}
 			case "local_dir":
 				current.LocalDir = ExpandTilde(val)
 			case "virtual_mount":
@@ -121,6 +128,7 @@ func SaveProfiles(profiles []*ConnectorProfile) error {
 		sb.WriteString(fmt.Sprintf("[%s]\n", p.Name))
 		sb.WriteString(fmt.Sprintf("remote = %s\n", p.Remote))
 		sb.WriteString(fmt.Sprintf("mode = %s\n", p.Mode))
+		sb.WriteString(fmt.Sprintf("enabled = %t\n", p.Enabled))
 		sb.WriteString(fmt.Sprintf("local_dir = %s\n", p.LocalDir))
 		sb.WriteString(fmt.Sprintf("virtual_mount = %s\n", p.VirtualMount))
 		sb.WriteString(fmt.Sprintf("bisync_flags = %s\n", p.BisyncFlags))

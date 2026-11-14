@@ -38,8 +38,15 @@ func main() {
 		log.Fatalf(i18n.T("config.empty"), config.ProfilesPath())
 	}
 
+	var activeProfiles []*config.ConnectorProfile
+	for _, profile := range profiles {
+		if profile.Enabled {
+			activeProfiles = append(activeProfiles, profile)
+		}
+	}
+
 	if *togglePath != "" {
-		ui.ToggleItem(*togglePath, profiles)
+		ui.ToggleItem(*togglePath, activeProfiles)
 		return
 	}
 
@@ -47,7 +54,7 @@ func main() {
 	defer stop()
 
 	var wg sync.WaitGroup
-	for _, p := range profiles {
+	for _, p := range activeProfiles {
 		wg.Add(1)
 		go func(prof *config.ConnectorProfile) {
 			defer wg.Done()
@@ -55,7 +62,7 @@ func main() {
 		}(p)
 	}
 
-	log.Printf(i18n.T("daemon.started"), len(profiles))
+	log.Printf(i18n.T("daemon.started"), len(activeProfiles))
 	<-ctx.Done()
 	log.Println(i18n.T("daemon.stopping"))
 	wg.Wait()

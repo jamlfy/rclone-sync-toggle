@@ -15,96 +15,110 @@ import (
 
 func OpenConfigWindow() {
 	for {
-		profiles, _ := config.LoadProfiles()
-
-		// Si no hay perfiles aún, abrir directo el formulario de agregar
-		if len(profiles) == 0 {
-			newProf := promptAddMapping(profiles)
-			if newProf == nil {
-				return
-			}
-			profiles = append(profiles, newProf)
-			_ = config.SaveProfiles(profiles)
-			_ = os.MkdirAll(newProf.LocalDir, 0755)
-			if newProf.Mode == "hybrid" {
-				desktop.Notify("normal", "system-run", newProf.Name, i18n.T("ui.sync_new"))
-				daemon.RunBisync(newProf, true)
-			}
-			_ = desktop.RestartService()
-			desktop.Notify("normal", "emblem-default", i18n.T("ui.mapping_added"), fmt.Sprintf("%s -> %s", newProf.LocalDir, newProf.Remote))
-			continue
-		}
-
-		args := []string{
-			"--list",
-			"--checklist",
-			"--title=" + i18n.T("ui.manager_title"),
-			"--text=" + i18n.T("ui.manager_text"),
-			"--column=" + i18n.T("ui.active"),
-			"--column=" + i18n.T("ui.id"),
-			"--column=" + i18n.T("ui.local_folder"),
-			"--column=" + i18n.T("ui.rclone_remote"),
-			"--column=" + i18n.T("ui.mode"),
-			"--hide-column=2",
-			"--print-column=2",
-			"--separator=|",
-			"--extra-button=" + i18n.T("ui.add_synced_folder"),
-			"--ok-label=" + i18n.T("ui.save_apply"),
-			"--cancel-label=" + i18n.T("ui.close"),
-			"--width=720",
-			"--height=400",
-		}
-
-		profileMap := make(map[string]*config.ConnectorProfile)
-		for _, p := range profiles {
-			profileMap[p.Name] = p
-			args = append(args, "TRUE", p.Name, p.LocalDir, p.Remote, p.Mode)
-		}
-
-		cmd := exec.Command("zenity", args...)
-		outBytes, err := cmd.Output()
-		outStr := strings.TrimSpace(string(outBytes))
-
-		// Zenity devuelve exit code 1 al pulsar --extra-button, por eso se revisa primero outStr
-		if outStr == i18n.T("ui.add_synced_folder") {
-			if newProf := promptAddMapping(profiles); newProf != nil {
-				profiles = append(profiles, newProf)
-				_ = config.SaveProfiles(profiles)
-				_ = os.MkdirAll(newProf.LocalDir, 0755)
-				if newProf.Mode == "hybrid" {
-					desktop.Notify("normal", "system-run", newProf.Name, i18n.T("ui.sync_new"))
-					daemon.RunBisync(newProf, true)
-				}
-				_ = desktop.RestartService()
-				desktop.Notify("normal", "emblem-default", i18n.T("ui.mapping_added"), fmt.Sprintf("%s -> %s", newProf.LocalDir, newProf.Remote))
-			}
-			continue
-		}
-
+		profiles, err := config.LoadProfiles()
 		if err != nil {
+			desktop.Notify("critical", "dialog-error", "Rclone Sync", fmt.Sprintf(i18n.T("config.read_error"), err))
 			return
 		}
 
+		if len(profiles) == 0 {
+			if !addProfile(profiles) {
+				return
+			}
+			continue
+		}
+
+		result := showConfigManager(profiles)
+		if result.err != nil {
+			desktop.Notify("critical", "dialog-error", "Rclone Sync", result.err.Error())
+			return
+		}
+		if result.action == "cancel" {
+			return
+		}
+		if result.action == "add" {
+			addProfile(profiles)
+			continue
+		}
+
+		active := make(map[string]bool, len(result.active))
+		for _, name := range result.active {
+			active[name] = true
+		}
+		deleted := make(map[string]bool, len(result.deleted))
+		for _, name := range result.deleted {
+			deleted[name] = true
+		}
 		var keptProfiles []*config.ConnectorProfile
-		if outStr != "" {
-			for _, id := range strings.Split(outStr, "|") {
-				if p, ok := profileMap[strings.TrimSpace(id)]; ok {
-					keptProfiles = append(keptProfiles, p)
-				}
+		for _, profile := range profiles {
+			if deleted[profile.Name] {
+				continue
+			}
+			profile.Enabled = active[profile.Name]
+			keptProfiles = append(keptProfiles, profile)
+		}
+		if err := config.SaveProfiles(keptProfiles); err != nil {
+			desktop.Notify("critical", "dialog-error", "Rclone Sync", fmt.Sprintf(i18n.T("ui.save_failed"), err))
+			continue
+		}
+
+		activeCount := 0
+		for _, profile := range keptProfiles {
+			if profile.Enabled {
+				activeCount++
 			}
 		}
-
-		_ = config.SaveProfiles(keptProfiles)
-
-		if len(keptProfiles) == 0 {
-			_ = desktop.StopService()
+		if activeCount == 0 {
+			if err := desktop.StopService(); err != nil {
+				desktop.Notify("critical", "dialog-error", "Rclone Sync", fmt.Sprintf(i18n.T("ui.stop_failed"), err))
+				return
+			}
+			if len(result.deleted) > 0 {
+				desktop.Notify("normal", "emblem-default", i18n.T("ui.mapping_removed"), fmt.Sprintf(i18n.T("ui.mapping_removed_details"), strings.Join(result.deleted, ", ")))
+			}
 			desktop.Notify("normal", "dialog-information", "Rclone Sync", i18n.T("ui.no_active_folders"))
+			if len(keptProfiles) == 0 {
+				return
+			}
 		} else {
-			_ = desktop.RestartService()
-			desktop.Notify("normal", "emblem-default", "Rclone Sync", i18n.T("ui.applied"))
+			if err := desktop.RestartService(); err != nil {
+				desktop.Notify("critical", "dialog-error", "Rclone Sync", fmt.Sprintf(i18n.T("ui.restart_failed"), err))
+				return
+			}
+			if len(result.deleted) > 0 {
+				desktop.Notify("normal", "emblem-default", i18n.T("ui.mapping_removed"), fmt.Sprintf(i18n.T("ui.mapping_removed_details"), strings.Join(result.deleted, ", ")))
+			} else {
+				desktop.Notify("normal", "emblem-default", "Rclone Sync", i18n.T("ui.applied"))
+			}
 		}
-		return
 	}
+}
+
+func addProfile(profiles []*config.ConnectorProfile) bool {
+	newProf := promptAddMapping(profiles)
+	if newProf == nil {
+		return false
+	}
+
+	if err := os.MkdirAll(newProf.LocalDir, 0755); err != nil {
+		desktop.Notify("critical", "dialog-error", "Rclone Sync", err.Error())
+		return false
+	}
+	updated := append(profiles, newProf)
+	if err := config.SaveProfiles(updated); err != nil {
+		desktop.Notify("critical", "dialog-error", "Rclone Sync", fmt.Sprintf(i18n.T("ui.save_failed"), err))
+		return false
+	}
+	if newProf.Mode == "hybrid" {
+		desktop.Notify("normal", "system-run", newProf.Name, i18n.T("ui.sync_new"))
+		daemon.RunBisync(newProf, true)
+	}
+	if err := desktop.RestartService(); err != nil {
+		desktop.Notify("critical", "dialog-error", "Rclone Sync", fmt.Sprintf(i18n.T("ui.restart_failed"), err))
+		return false
+	}
+	desktop.Notify("normal", "emblem-default", i18n.T("ui.mapping_added"), fmt.Sprintf("%s -> %s", newProf.LocalDir, newProf.Remote))
+	return true
 }
 
 func promptAddMapping(existing []*config.ConnectorProfile) *config.ConnectorProfile {
@@ -195,6 +209,7 @@ func promptAddMapping(existing []*config.ConnectorProfile) *config.ConnectorProf
 		Name:         profName,
 		Remote:       baseRemote + ":" + subPath,
 		Mode:         mode,
+		Enabled:      true,
 		LocalDir:     localPath,
 		VirtualMount: filepath.Join(h, ".cache", strings.ToLower(profName)+"-virtual"),
 		BisyncFlags:  bisyncFlags,

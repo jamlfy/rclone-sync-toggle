@@ -7,9 +7,9 @@ func TestInitSelectsLanguage(t *testing.T) {
 		language string
 		want     string
 	}{
-		{language: "en", want: "Folder -> Remote Manager (Rclone)"},
-		{language: "en_US.UTF-8", want: "Folder -> Remote Manager (Rclone)"},
-		{language: "es-MX", want: "Gestor Carpeta -> Conexión (Rclone)"},
+		{language: "en", want: "Manage Hybrid Folders"},
+		{language: "en_US.UTF-8", want: "Manage Hybrid Folders"},
+		{language: "es-MX", want: "Gestionar Carpetas Híbridas"},
 	}
 
 	for _, tt := range tests {
@@ -36,7 +36,7 @@ func TestInitFallsBackToSpanishForUnsupportedSystemLocale(t *testing.T) {
 	if err := Init(""); err != nil {
 		t.Fatalf("Init() returned an error: %v", err)
 	}
-	if got, want := T("ui.manager_title"), "Gestor Carpeta -> Conexión (Rclone)"; got != want {
+	if got, want := T("ui.manager_title"), "Gestionar Carpetas Híbridas"; got != want {
 		t.Errorf("T(ui.manager_title) = %q, want %q", got, want)
 	}
 }
