@@ -1,0 +1,11 @@
+# Build artifacts
+/rclone-sync-toggle
+/coverage.out
+*.test
+
+# Editor and OS files
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
