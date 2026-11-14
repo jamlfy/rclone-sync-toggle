@@ -21,9 +21,16 @@ type managerProfile struct {
 }
 
 type managerResult struct {
-	action  string
-	active  []string
-	deleted []string
+	action   string
+	selected string
+	active   []string
+	deleted  []string
+	err      error
+}
+
+type profileEditResult struct {
+	profile *config.ConnectorProfile
+	saved   bool
 	err     error
 }
 
@@ -47,10 +54,15 @@ type gtkAPI struct {
 	gtkWindowNew                  func(int32) uintptr
 	gtkWindowSetTitle             func(uintptr, string)
 	gtkWindowSetDefaultSize       func(uintptr, int32, int32)
+	gtkWindowSetModal             func(uintptr, int32)
 	gtkContainerSetBorderWidth    func(uintptr, uint32)
 	gtkContainerAdd               func(uintptr, uintptr)
 	gtkBoxNew                     func(int32, int32) uintptr
 	gtkBoxPackStart               func(uintptr, uintptr, int32, int32, uint32)
+	gtkGridNew                    func() uintptr
+	gtkGridSetRowSpacing          func(uintptr, uint32)
+	gtkGridSetColumnSpacing       func(uintptr, uint32)
+	gtkGridAttach                 func(uintptr, uintptr, int32, int32, int32, int32)
 	gtkListStoreNewv              func(int32, *uintptr) uintptr
 	gtkListStoreAppend            func(uintptr, *gtkTreeIter)
 	gtkListStoreSetValue          func(uintptr, *gtkTreeIter, int32, *gtkValue)
@@ -73,7 +85,19 @@ type gtkAPI struct {
 	gtkButtonBoxNew               func(int32) uintptr
 	gtkButtonBoxSetLayout         func(uintptr, int32)
 	gtkButtonNewWithLabel         func(string) uintptr
+	gtkLabelNew                   func(string) uintptr
+	gtkLabelSetXalign             func(uintptr, float32)
+	gtkLabelSetLineWrap           func(uintptr, int32)
+	gtkLabelSetText               func(uintptr, string)
+	gtkEntryNew                   func() uintptr
+	gtkEntrySetText               func(uintptr, string)
+	gtkEntryGetText               func(uintptr) *byte
+	gtkComboBoxTextNew            func() uintptr
+	gtkComboBoxTextAppendText     func(uintptr, string)
+	gtkComboBoxSetActive          func(uintptr, int32)
+	gtkComboBoxGetActive          func(uintptr) int32
 	gtkWidgetSetSizeRequest       func(uintptr, int32, int32)
+	gtkWidgetSetHexpand           func(uintptr, int32)
 	gtkWidgetShowAll              func(uintptr)
 	gtkWidgetDestroy              func(uintptr)
 	gtkTimeoutAdd                 func(uint32, uintptr, uintptr) uint32
@@ -172,8 +196,12 @@ func showConfigManager(profiles []*config.ConnectorProfile) managerResult {
 		appendGTKColumn(tree, column.title, renderer, "text", column.index, column.wide)
 	}
 
-	trashRenderer := gtk.gtkCellRendererPixbufNew()
+	editRenderer := gtk.gtkCellRendererPixbufNew()
 	gtk.gTypeClassRef(gtk.gtkCellRendererGetType())
+	setGTKRendererProperty(editRenderer, "icon-name", valueTypes[1], "document-edit-symbolic")
+	editColumn := appendGTKColumn(tree, i18n.T("ui.edit"), editRenderer, "icon-name", -1, false)
+
+	trashRenderer := gtk.gtkCellRendererPixbufNew()
 	setGTKRendererProperty(trashRenderer, "icon-name", valueTypes[1], "user-trash-symbolic")
 	trashColumn := appendGTKColumn(tree, i18n.T("ui.delete"), trashRenderer, "icon-name", -1, false)
 	scroll := gtk.gtkScrolledWindowNew(nil, nil)
@@ -220,15 +248,21 @@ func showConfigManager(profiles []*config.ConnectorProfile) managerResult {
 			return 0
 		}
 		defer gtk.gtkTreePathFree(path)
-		if column != trashColumn {
-			return 0
-		}
 		indices := gtk.gtkTreePathGetIndices(path)
 		if indices == nil {
 			return 0
 		}
 		index := int(*indices)
 		if index < 0 || index >= len(rows) {
+			return 0
+		}
+		if column == editColumn {
+			result.action = "edit"
+			result.selected = rows[index].profile.Name
+			gtk.gtkWidgetDestroy(window)
+			return 1
+		}
+		if column != trashColumn {
 			return 0
 		}
 		result.deleted = append(result.deleted, rows[index].profile.Name)
@@ -268,6 +302,132 @@ func showConfigManager(profiles []*config.ConnectorProfile) managerResult {
 	return result
 }
 
+func editProfile(profile *config.ConnectorProfile) profileEditResult {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	gtkOnce.Do(loadGTK)
+	if gtkLoadError != nil {
+		return profileEditResult{err: gtkLoadError}
+	}
+	if gtk.gtkInitCheck(nil, nil) == 0 {
+		return profileEditResult{err: fmt.Errorf("could not initialize GTK; check that a graphical session is available")}
+	}
+
+	remoteName, cloudPath := splitRemote(profile.Remote)
+	window := gtk.gtkWindowNew(0)
+	gtk.gtkWindowSetTitle(window, i18n.T("ui.edit_title"))
+	gtk.gtkWindowSetDefaultSize(window, 680, 430)
+	gtk.gtkWindowSetModal(window, 1)
+	gtk.gtkContainerSetBorderWidth(window, 16)
+
+	layout := gtk.gtkBoxNew(1, 14)
+	gtk.gtkContainerAdd(window, layout)
+	grid := gtk.gtkGridNew()
+	gtk.gtkGridSetRowSpacing(grid, 10)
+	gtk.gtkGridSetColumnSpacing(grid, 14)
+	gtk.gtkBoxPackStart(layout, grid, 1, 1, 0)
+
+	localEntry := addGTKEntryField(grid, 0, i18n.T("ui.local_folder"), profile.LocalDir)
+	remoteEntry := addGTKEntryField(grid, 1, i18n.T("ui.connection"), remoteName)
+	cloudEntry := addGTKEntryField(grid, 2, i18n.T("ui.cloud_folder"), cloudPath)
+	modeCombo := gtk.gtkComboBoxTextNew()
+	gtk.gtkComboBoxTextAppendText(modeCombo, "hybrid")
+	gtk.gtkComboBoxTextAppendText(modeCombo, "virtual")
+	modeIndex := int32(0)
+	if profile.Mode == "virtual" {
+		modeIndex = 1
+	}
+	gtk.gtkComboBoxSetActive(modeCombo, modeIndex)
+	attachGTKField(grid, 3, i18n.T("ui.mode"), modeCombo)
+	bisyncEntry := addGTKEntryField(grid, 4, i18n.T("ui.bisync_flags"), profile.BisyncFlags)
+	mountEntry := addGTKEntryField(grid, 5, i18n.T("ui.mount_flags"), profile.MountFlags)
+	status := gtk.gtkLabelNew("")
+	gtk.gtkLabelSetXalign(status, 0)
+	gtk.gtkGridAttach(grid, status, 1, 6, 1, 1)
+	warning := gtk.gtkLabelNew(i18n.T("ui.resync_warning"))
+	gtk.gtkLabelSetXalign(warning, 0)
+	gtk.gtkLabelSetLineWrap(warning, 1)
+	gtk.gtkBoxPackStart(layout, warning, 0, 0, 0)
+
+	buttons := gtk.gtkButtonBoxNew(0)
+	gtk.gtkButtonBoxSetLayout(buttons, 3)
+	cancelButton := gtk.gtkButtonNewWithLabel(i18n.T("ui.cancel"))
+	saveButton := gtk.gtkButtonNewWithLabel(i18n.T("ui.save"))
+	gtk.gtkContainerAdd(buttons, cancelButton)
+	gtk.gtkContainerAdd(buttons, saveButton)
+	gtk.gtkBoxPackStart(layout, buttons, 0, 0, 0)
+
+	result := profileEditResult{}
+	windowDestroyed := false
+	mainLoopRunning := true
+	addGTKSignal(cancelButton, "clicked", func(_ uintptr, _ uintptr) {
+		gtk.gtkWidgetDestroy(window)
+	})
+	addGTKSignal(saveButton, "clicked", func(_ uintptr, _ uintptr) {
+		localDir := config.ExpandTilde(strings.TrimSpace(gtkCString(gtk.gtkEntryGetText(localEntry))))
+		remoteName := strings.TrimSuffix(strings.TrimSpace(gtkCString(gtk.gtkEntryGetText(remoteEntry))), ":")
+		cloudPath := strings.TrimSpace(gtkCString(gtk.gtkEntryGetText(cloudEntry)))
+		mode := gtk.gtkComboBoxGetActive(modeCombo)
+
+		if localDir == "" {
+			gtk.gtkLabelSetText(status, i18n.T("ui.invalid_local_folder"))
+			return
+		}
+		if remoteName == "" {
+			gtk.gtkLabelSetText(status, i18n.T("ui.invalid_connection"))
+			return
+		}
+		if cloudPath == "" {
+			cloudPath = "/"
+		} else if !strings.HasPrefix(cloudPath, "/") {
+			cloudPath = "/" + cloudPath
+		}
+		if mode < 0 {
+			mode = 0
+		}
+		bisyncFlags := strings.TrimSpace(gtkCString(gtk.gtkEntryGetText(bisyncEntry)))
+		if bisyncFlags == "" {
+			bisyncFlags = config.DefaultBisyncFlags
+		}
+		mountFlags := strings.TrimSpace(gtkCString(gtk.gtkEntryGetText(mountEntry)))
+		if mountFlags == "" {
+			mountFlags = config.DefaultMountFlags
+		}
+		modeName := "hybrid"
+		if mode == 1 {
+			modeName = "virtual"
+		}
+		result.profile = &config.ConnectorProfile{
+			Name:         profile.Name,
+			Remote:       remoteName + ":" + cloudPath,
+			Mode:         modeName,
+			Enabled:      profile.Enabled,
+			LocalDir:     localDir,
+			VirtualMount: profile.VirtualMount,
+			VirtualItems: append([]string(nil), profile.VirtualItems...),
+			BisyncFlags:  bisyncFlags,
+			MountFlags:   mountFlags,
+		}
+		result.saved = true
+		gtk.gtkWidgetDestroy(window)
+	})
+	addGTKSignal(window, "destroy", func(_ uintptr, _ uintptr) {
+		windowDestroyed = true
+		if mainLoopRunning {
+			gtk.gtkMainQuit()
+		}
+	})
+
+	gtk.gtkWidgetShowAll(window)
+	gtk.gtkMain()
+	mainLoopRunning = false
+	if !windowDestroyed {
+		gtk.gtkWidgetDestroy(window)
+	}
+	return result
+}
+
 func loadGTK() {
 	library, err := purego.Dlopen("libgtk-3.so.0", purego.RTLD_NOW|purego.RTLD_GLOBAL)
 	if err != nil {
@@ -292,10 +452,15 @@ func loadGTK() {
 	register(&gtk.gtkWindowNew, "gtk_window_new")
 	register(&gtk.gtkWindowSetTitle, "gtk_window_set_title")
 	register(&gtk.gtkWindowSetDefaultSize, "gtk_window_set_default_size")
+	register(&gtk.gtkWindowSetModal, "gtk_window_set_modal")
 	register(&gtk.gtkContainerSetBorderWidth, "gtk_container_set_border_width")
 	register(&gtk.gtkContainerAdd, "gtk_container_add")
 	register(&gtk.gtkBoxNew, "gtk_box_new")
 	register(&gtk.gtkBoxPackStart, "gtk_box_pack_start")
+	register(&gtk.gtkGridNew, "gtk_grid_new")
+	register(&gtk.gtkGridSetRowSpacing, "gtk_grid_set_row_spacing")
+	register(&gtk.gtkGridSetColumnSpacing, "gtk_grid_set_column_spacing")
+	register(&gtk.gtkGridAttach, "gtk_grid_attach")
 	register(&gtk.gtkListStoreNewv, "gtk_list_store_newv")
 	register(&gtk.gtkListStoreAppend, "gtk_list_store_append")
 	register(&gtk.gtkListStoreSetValue, "gtk_list_store_set_value")
@@ -318,7 +483,19 @@ func loadGTK() {
 	register(&gtk.gtkButtonBoxNew, "gtk_button_box_new")
 	register(&gtk.gtkButtonBoxSetLayout, "gtk_button_box_set_layout")
 	register(&gtk.gtkButtonNewWithLabel, "gtk_button_new_with_label")
+	register(&gtk.gtkLabelNew, "gtk_label_new")
+	register(&gtk.gtkLabelSetXalign, "gtk_label_set_xalign")
+	register(&gtk.gtkLabelSetLineWrap, "gtk_label_set_line_wrap")
+	register(&gtk.gtkLabelSetText, "gtk_label_set_text")
+	register(&gtk.gtkEntryNew, "gtk_entry_new")
+	register(&gtk.gtkEntrySetText, "gtk_entry_set_text")
+	register(&gtk.gtkEntryGetText, "gtk_entry_get_text")
+	register(&gtk.gtkComboBoxTextNew, "gtk_combo_box_text_new")
+	register(&gtk.gtkComboBoxTextAppendText, "gtk_combo_box_text_append_text")
+	register(&gtk.gtkComboBoxSetActive, "gtk_combo_box_set_active")
+	register(&gtk.gtkComboBoxGetActive, "gtk_combo_box_get_active")
 	register(&gtk.gtkWidgetSetSizeRequest, "gtk_widget_set_size_request")
+	register(&gtk.gtkWidgetSetHexpand, "gtk_widget_set_hexpand")
 	register(&gtk.gtkWidgetShowAll, "gtk_widget_show_all")
 	register(&gtk.gtkWidgetDestroy, "gtk_widget_destroy")
 	register(&gtk.gtkTimeoutAdd, "g_timeout_add")
@@ -352,6 +529,21 @@ func appendGTKColumn(tree uintptr, title string, renderer uintptr, attribute str
 	gtk.gtkTreeViewColumnSetExpand(column, expandValue)
 	gtk.gtkTreeViewAppendColumn(tree, column)
 	return column
+}
+
+func addGTKEntryField(grid uintptr, row int32, title, value string) uintptr {
+	entry := gtk.gtkEntryNew()
+	gtk.gtkEntrySetText(entry, value)
+	attachGTKField(grid, row, title, entry)
+	return entry
+}
+
+func attachGTKField(grid uintptr, row int32, title string, widget uintptr) {
+	label := gtk.gtkLabelNew(title)
+	gtk.gtkLabelSetXalign(label, 0)
+	gtk.gtkGridAttach(grid, label, 0, row, 1, 1)
+	gtk.gtkWidgetSetHexpand(widget, 1)
+	gtk.gtkGridAttach(grid, widget, 1, row, 1, 1)
 }
 
 func setGTKValue(model uintptr, iter *gtkTreeIter, column int32, valueType uintptr, value any) {

@@ -40,6 +40,31 @@ func OpenConfigWindow() {
 			addProfile(profiles)
 			continue
 		}
+		if result.action == "edit" {
+			var selected *config.ConnectorProfile
+			for _, profile := range profiles {
+				if profile.Name == result.selected {
+					selected = profile
+					break
+				}
+			}
+			if selected == nil {
+				continue
+			}
+			edited := editProfile(selected)
+			if edited.err != nil {
+				desktop.Notify("critical", "dialog-error", "Rclone Sync", edited.err.Error())
+				return
+			}
+			if !edited.saved {
+				continue
+			}
+			if err := applyProfileEdit(profiles, selected, edited.profile); err != nil {
+				desktop.Notify("critical", "dialog-error", "Rclone Sync", err.Error())
+				continue
+			}
+			continue
+		}
 
 		active := make(map[string]bool, len(result.active))
 		for _, name := range result.active {
@@ -92,6 +117,50 @@ func OpenConfigWindow() {
 			}
 		}
 	}
+}
+
+func applyProfileEdit(profiles []*config.ConnectorProfile, oldProfile, edited *config.ConnectorProfile) error {
+	if err := os.MkdirAll(edited.LocalDir, 0755); err != nil {
+		return err
+	}
+
+	updatedProfiles := make([]*config.ConnectorProfile, 0, len(profiles))
+	for _, profile := range profiles {
+		if profile.Name == oldProfile.Name {
+			updatedProfiles = append(updatedProfiles, edited)
+		} else {
+			updatedProfiles = append(updatedProfiles, profile)
+		}
+	}
+	if err := config.SaveProfiles(updatedProfiles); err != nil {
+		return fmt.Errorf(i18n.T("ui.save_failed"), err)
+	}
+
+	activeCount := 0
+	for _, profile := range updatedProfiles {
+		if profile.Enabled {
+			activeCount++
+		}
+	}
+	if activeCount == 0 {
+		if err := desktop.StopService(); err != nil {
+			return fmt.Errorf(i18n.T("ui.stop_failed"), err)
+		}
+	} else {
+		needsResync := edited.Enabled && edited.Mode == "hybrid" &&
+			(oldProfile.Mode != "hybrid" || oldProfile.LocalDir != edited.LocalDir || oldProfile.Remote != edited.Remote)
+		if needsResync {
+			if err := desktop.StopService(); err != nil {
+				return fmt.Errorf(i18n.T("ui.stop_failed"), err)
+			}
+			daemon.RunBisync(edited, true)
+		}
+		if err := desktop.RestartService(); err != nil {
+			return fmt.Errorf(i18n.T("ui.restart_failed"), err)
+		}
+	}
+	desktop.Notify("normal", "emblem-default", i18n.T("ui.mapping_updated"), edited.Name)
+	return nil
 }
 
 func addProfile(profiles []*config.ConnectorProfile) bool {

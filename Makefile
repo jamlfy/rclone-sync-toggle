@@ -4,12 +4,15 @@ SYSTEMD_DIR=$(HOME)/.config/systemd/user
 NAUTILUS_DIR=$(HOME)/.local/share/nautilus/scripts
 APPS_DIR=$(HOME)/.local/share/applications
 
-.PHONY: all build install restart
+.PHONY: all build install restart launch
 
 all: build install restart
 
 build:
 	GOTOOLCHAIN=local go build -ldflags="-s -w" -o $(BINARY_NAME) ./cmd/main.go
+
+launch: build
+	./$(BINARY_NAME) --config
 
 install: build
 	mkdir -p $(INSTALL_DIR) $(SYSTEMD_DIR) "$(NAUTILUS_DIR)" $(APPS_DIR)

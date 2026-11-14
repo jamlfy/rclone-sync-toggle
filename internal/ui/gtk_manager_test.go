@@ -61,6 +61,39 @@ func TestConfigManagerRenders(t *testing.T) {
 	}
 }
 
+func TestProfileEditorRenders(t *testing.T) {
+	gtkOnce.Do(loadGTK)
+	if gtkLoadError != nil {
+		t.Fatalf("loadGTK() failed: %v", gtkLoadError)
+	}
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	if gtk.gtkInitCheck(nil, nil) == 0 {
+		t.Skip("no graphical display is available")
+	}
+
+	timeout := purego.NewCallback(func(_ uintptr) int32 {
+		gtk.gtkMainQuit()
+		return 0
+	})
+	gtk.gtkTimeoutAdd(250, timeout, 0)
+	result := editProfile(&config.ConnectorProfile{
+		Name:        "example",
+		Remote:      "Drive:/Documents",
+		Mode:        "hybrid",
+		Enabled:     true,
+		LocalDir:    "/home/user/Documents",
+		BisyncFlags: config.DefaultBisyncFlags,
+		MountFlags:  config.DefaultMountFlags,
+	})
+	if result.err != nil {
+		t.Fatalf("editProfile() failed: %v", result.err)
+	}
+	if result.saved {
+		t.Error("profile editor saved without the Save button being clicked")
+	}
+}
+
 func TestSplitRemote(t *testing.T) {
 	tests := []struct {
 		remote string
