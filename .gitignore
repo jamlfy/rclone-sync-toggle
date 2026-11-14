@@ -1,5 +1,7 @@
 # Build artifacts
 /rclone-sync-toggle
+/build/deb-root/
+/dist/
 /coverage.out
 *.test
 

@@ -1,0 +1,14 @@
+[Unit]
+Description=Rclone Sync Toggle user daemon
+After=network-online.target graphical-session.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+PassEnvironment=DISPLAY DBUS_SESSION_BUS_ADDRESS XAUTHORITY LANG LC_ALL
+ExecStart=/usr/bin/rclone-sync-toggle
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

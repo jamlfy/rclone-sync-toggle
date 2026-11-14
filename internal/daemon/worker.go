@@ -148,12 +148,12 @@ func RunBisync(p *config.ConnectorProfile, isResync bool) {
 }
 
 func superviseMount(ctx context.Context, name, remote, mountPoint, mountFlags string) {
-	_ = exec.Command("fusermount", "-u", "-z", mountPoint).Run()
+	_ = unmount(mountPoint)
 
 	for {
 		select {
 		case <-ctx.Done():
-			_ = exec.Command("fusermount", "-u", "-z", mountPoint).Run()
+			_ = unmount(mountPoint)
 			return
 		default:
 		}
@@ -167,12 +167,20 @@ func superviseMount(ctx context.Context, name, remote, mountPoint, mountFlags st
 		log.Printf("[%s] %s", name, fmt.Sprintf(i18n.T("worker.mounting"), remote, mountPoint))
 		err := cmd.Run()
 		if ctx.Err() != nil {
-			_ = exec.Command("fusermount", "-u", "-z", mountPoint).Run()
+			_ = unmount(mountPoint)
 			return
 		}
 		log.Printf("[%s] %s", name, fmt.Sprintf(i18n.T("worker.mount_stopped"), err))
 		time.Sleep(5 * time.Second)
 	}
+}
+
+func unmount(mountPoint string) error {
+	command := "fusermount"
+	if _, err := exec.LookPath(command); err != nil {
+		command = "fusermount3"
+	}
+	return exec.Command(command, "-u", "-z", mountPoint).Run()
 }
 
 func ensureSymlinks(p *config.ConnectorProfile) {

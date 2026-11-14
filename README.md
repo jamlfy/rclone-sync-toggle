@@ -7,7 +7,7 @@ A Linux desktop utility that keeps local folders synchronized with configured Rc
 - Go 1.22 or later
 - GTK 3 runtime library
 - [Rclone](https://rclone.org/) with at least one remote configured using `rclone config`
-- Zenity, `notify-send`, and FUSE userspace tools (`fusermount`)
+- Zenity, `notify-send`, and FUSE userspace tools (`fusermount` or `fusermount3`)
 - A Linux desktop session with a user-level systemd instance
 
 ## Build and install
@@ -16,7 +16,29 @@ A Linux desktop utility that keeps local folders synchronized with configured Rc
 make install
 ```
 
-This builds and installs the executable under `~/.config/rclone-sync-toggle`, creates and enables the `rclone-sync-toggle.service` user service, adds a desktop launcher, and installs a Nautilus script for toggling selected files or folders. To build without installing, run `make build`.
+This builds and installs the executable under `~/.config/rclone-sync-toggle`, creates the `rclone-sync-toggle.service` user unit, adds a desktop launcher, and installs a Nautilus script for toggling selected files or folders. To build without installing, run `make build`; run `make restart` to enable and start the user service after configuring profiles.
+
+## Debian package
+
+Build a native `.deb` package on Debian, Ubuntu, or Pop!_OS:
+
+```sh
+make deb
+```
+
+The package is written to `dist/rclone-sync-toggle_0.1.0_<architecture>.deb`. Override the version with `make deb VERSION=1.0.0`. Install it with:
+
+```sh
+sudo apt install ./dist/rclone-sync-toggle_0.1.0_amd64.deb
+```
+
+Open the desktop launcher or run `rclone-sync-toggle --config` to create a profile, then enable the user service:
+
+```sh
+systemctl --user enable --now rclone-sync-toggle.service
+```
+
+Packages are built for the native `amd64` or `arm64` architecture. A package includes the application, desktop launcher, user service unit, Nautilus script, and README; it does not include personal Rclone credentials or `sync-profiles.ini`. Install Rclone and configure each remote separately on every machine.
 
 Open the configuration window from the desktop launcher or run:
 

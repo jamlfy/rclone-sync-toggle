@@ -1,0 +1,6 @@
+#!/bin/bash
+while IFS= read -r FILE_PATH; do
+    if [ -n "$FILE_PATH" ]; then
+        /usr/bin/rclone-sync-toggle --toggle "$FILE_PATH"
+    fi
+done <<< "$NAUTILUS_SCRIPT_SELECTED_FILE_PATHS"
