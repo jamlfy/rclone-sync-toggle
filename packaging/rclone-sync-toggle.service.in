@@ -1,0 +1,15 @@
+[Unit]
+Description=@SERVICE_DESCRIPTION@
+After=@SERVICE_AFTER@
+Wants=@SERVICE_WANTS@
+
+[Service]
+Type=simple
+PassEnvironment=@SERVICE_PASS_ENVIRONMENT@
+Environment=PATH=@RCLONE_BIN_DIR@:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=@INSTALL_DIR@/@BINARY_NAME@
+Restart=@SERVICE_RESTART@
+RestartSec=@SERVICE_RESTART_SEC@
+
+[Install]
+WantedBy=default.target

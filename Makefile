@@ -3,6 +3,14 @@ INSTALL_DIR=$(HOME)/.config/rclone-sync-toggle
 SYSTEMD_DIR=$(HOME)/.config/systemd/user
 NAUTILUS_DIR=$(HOME)/.local/share/nautilus/scripts
 APPS_DIR=$(HOME)/.local/share/applications
+SERVICE_TEMPLATE=packaging/rclone-sync-toggle.service.in
+SERVICE_DESCRIPTION?=Daemon de Sincronizacion Multiconector Rclone
+SERVICE_AFTER?=network-online.target graphical-session.target
+SERVICE_WANTS?=network-online.target
+SERVICE_PASS_ENVIRONMENT?=DISPLAY DBUS_SESSION_BUS_ADDRESS XAUTHORITY LANG LC_ALL
+SERVICE_RESTART?=on-failure
+SERVICE_RESTART_SEC?=5
+RCLONE_BIN_DIR?=$(HOME)/.local/bin
 VERSION?=0.1.0
 DEB_MAINTAINER?=jamlfy <jamlfy@users.noreply.github.com>
 DEB_ARCH?=$(shell dpkg --print-architecture)
@@ -10,7 +18,7 @@ GOARCH?=$(shell go env GOARCH)
 DEB_ROOT=build/deb-root
 DEB_OUTPUT_DIR=dist
 
-.PHONY: all build install restart launch deb
+.PHONY: all build install install-service restart launch deb
 
 all: build install restart
 
@@ -32,12 +40,25 @@ deb:
 launch: build
 	./$(BINARY_NAME) --config
 
-install: build
-	mkdir -p $(INSTALL_DIR) $(SYSTEMD_DIR) "$(NAUTILUS_DIR)" $(APPS_DIR)
+install-service:
+	mkdir -p $(SYSTEMD_DIR)
+	@sed \
+		-e 's|@SERVICE_DESCRIPTION@|$(SERVICE_DESCRIPTION)|g' \
+		-e 's|@SERVICE_AFTER@|$(SERVICE_AFTER)|g' \
+		-e 's|@SERVICE_WANTS@|$(SERVICE_WANTS)|g' \
+		-e 's|@SERVICE_PASS_ENVIRONMENT@|$(SERVICE_PASS_ENVIRONMENT)|g' \
+		-e 's|@RCLONE_BIN_DIR@|$(RCLONE_BIN_DIR)|g' \
+		-e 's|@INSTALL_DIR@|$(INSTALL_DIR)|g' \
+		-e 's|@BINARY_NAME@|$(BINARY_NAME)|g' \
+		-e 's|@SERVICE_RESTART@|$(SERVICE_RESTART)|g' \
+		-e 's|@SERVICE_RESTART_SEC@|$(SERVICE_RESTART_SEC)|g' \
+		$(SERVICE_TEMPLATE) > "$(SYSTEMD_DIR)/rclone-sync-toggle.service"
+	systemctl --user daemon-reload
+
+install: build install-service
+	mkdir -p $(INSTALL_DIR) "$(NAUTILUS_DIR)" $(APPS_DIR)
 	install -m 755 $(BINARY_NAME) $(INSTALL_DIR)/$(BINARY_NAME)
 	chmod +x $(INSTALL_DIR)/$(BINARY_NAME)
-
-	@printf '[Unit]\nDescription=Daemon de Sincronizacion Multiconector Rclone\nAfter=network-online.target graphical-session.target\nWants=network-online.target\n\n[Service]\nType=simple\nPassEnvironment=DISPLAY DBUS_SESSION_BUS_ADDRESS XAUTHORITY LANG LC_ALL\nExecStart=%s/%s\nRestart=on-failure\nRestartSec=5\n\n[Install]\nWantedBy=default.target\n' "$(INSTALL_DIR)" "$(BINARY_NAME)" > $(SYSTEMD_DIR)/rclone-sync-toggle.service
 
 	@printf '#!/bin/bash\nwhile IFS= read -r FILE_PATH; do\n    if [ -n "$$FILE_PATH" ]; then\n        "%s/%s" --toggle "$$FILE_PATH"\n    fi\ndone <<< "$$NAUTILUS_SCRIPT_SELECTED_FILE_PATHS"\n' "$(INSTALL_DIR)" "$(BINARY_NAME)" > "$(NAUTILUS_DIR)/No mantenerlo en el disco duro"
 	chmod +x "$(NAUTILUS_DIR)/No mantenerlo en el disco duro"

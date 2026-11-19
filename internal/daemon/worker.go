@@ -96,6 +96,7 @@ func RunWorker(ctx context.Context, p *config.ConnectorProfile) {
 	triggerChan := make(chan struct{}, 1)
 
 	log.Printf("[%s] %s", p.Name, fmt.Sprintf(i18n.Log("worker.hybrid_mode"), p.LocalDir, p.Remote))
+	go RunBisync(p, false)
 
 	for {
 		select {
@@ -151,6 +152,7 @@ func RunBisync(p *config.ConnectorProfile, isResync bool) {
 		log.Printf("[%s] Bisync is already running; skipping this cycle", p.Name)
 		return
 	}
+	log.Printf("[%s] Starting bisync (resync=%t)", p.Name, isResync)
 
 	filterPath, err := p.BuildFilterFile()
 	if err != nil {
@@ -183,6 +185,7 @@ func RunBisync(p *config.ConnectorProfile, isResync bool) {
 		}
 		return
 	}
+	log.Printf("[%s] Bisync completed successfully", p.Name)
 
 	if !isResync {
 		matches := changeRegex.FindAllString(outStr, -1)
