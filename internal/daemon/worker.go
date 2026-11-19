@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,6 +25,43 @@ const (
 )
 
 var changeRegex = regexp.MustCompile(`(Copied|Deleted|Moved)`)
+
+func bisyncAlreadyRunning() bool {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	lockDir := filepath.Join(home, ".cache", "rclone", "bisync")
+	matches, err := filepath.Glob(filepath.Join(lockDir, "*.lck"))
+	if err != nil {
+		return false
+	}
+	running := false
+	for _, lockPath := range matches {
+		data, err := os.ReadFile(lockPath)
+		if err != nil {
+			continue
+		}
+		pidText := strings.TrimSpace(string(data))
+		pid, err := strconv.Atoi(pidText)
+		if err != nil || pid <= 0 {
+			_ = os.Remove(lockPath)
+			continue
+		}
+		cmdline, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+		if err != nil {
+			_ = os.Remove(lockPath)
+			continue
+		}
+		command := string(cmdline)
+		if strings.Contains(command, "rclone") && strings.Contains(command, "bisync") {
+			running = true
+		} else {
+			_ = os.Remove(lockPath)
+		}
+	}
+	return running
+}
 
 func RunWorker(ctx context.Context, p *config.ConnectorProfile) {
 	_ = os.MkdirAll(p.LocalDir, 0755)
@@ -108,6 +146,11 @@ func RunBisync(p *config.ConnectorProfile, isResync bool) {
 		return
 	}
 	defer p.SyncMutex.Unlock()
+
+	if bisyncAlreadyRunning() {
+		log.Printf("[%s] Bisync is already running; skipping this cycle", p.Name)
+		return
+	}
 
 	filterPath, err := p.BuildFilterFile()
 	if err != nil {

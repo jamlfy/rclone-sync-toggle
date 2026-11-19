@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	DefaultBisyncFlags = "--fast-list --transfers 8 --checkers 16 --tpslimit 10 --drive-chunk-size 64M --drive-skip-dangling-shortcuts"
+	DefaultBisyncFlags = "--fast-list --transfers 8 --checkers 16 --tpslimit 10 --drive-chunk-size 64M --drive-skip-dangling-shortcuts --drive-export-formats docx,xlsx,pptx --drive-import-formats docx,xlsx,pptx"
 	DefaultMountFlags  = "--vfs-cache-mode full --vfs-cache-max-size 10G --vfs-cache-max-age 1h --dir-cache-time 96h --poll-interval 30s --tpslimit 10 --tpslimit-burst 10"
 )
 
@@ -37,7 +37,6 @@ func ProfilesPath() string {
 
 func RuntimeFiltersDir() string {
 	h, _ := os.UserHomeDir()
-
 	return filepath.Join(h, ".cache", "rclone-sync-filters")
 }
 
@@ -63,6 +62,12 @@ func SanitizeBisyncFlags(flags string) string {
 	result := strings.Join(sanitized, " ")
 	if !strings.Contains(result, "--drive-skip-dangling-shortcuts") {
 		result += " --drive-skip-dangling-shortcuts"
+	}
+	if !strings.Contains(result, "--drive-export-formats") {
+		result += " --drive-export-formats docx,xlsx,pptx"
+	}
+	if !strings.Contains(result, "--drive-import-formats") {
+		result += " --drive-import-formats docx,xlsx,pptx"
 	}
 	return result
 }
@@ -127,7 +132,9 @@ func SaveProfiles(profiles []*ConnectorProfile) error {
 		section.Key("virtual_mount").SetValue(p.VirtualMount)
 		section.Key("bisync_flags").SetValue(p.BisyncFlags)
 		section.Key("mount_flags").SetValue(p.MountFlags)
-		section.Key("virtual_items").SetValue(strings.Join(p.VirtualItems, ", "))
+		if len(p.VirtualItems) > 0 {
+			section.Key("virtual_items").SetValue(strings.Join(p.VirtualItems, ", "))
+		}
 	}
 	if err := cfg.SaveTo(ProfilesPath()); err != nil {
 		return err
