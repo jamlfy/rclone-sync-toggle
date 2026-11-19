@@ -1,17 +1,17 @@
 package config
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
+
+	"gopkg.in/ini.v1"
 )
 
 const (
-	DefaultBisyncFlags = "--fast-list --transfers 8 --checkers 16 --tpslimit 10 --drive-chunk-size 64M"
+	DefaultBisyncFlags = "--fast-list --transfers 8 --checkers 16 --tpslimit 10 --drive-chunk-size 64M --drive-skip-dangling-shortcuts"
 	DefaultMountFlags  = "--vfs-cache-mode full --vfs-cache-max-size 10G --vfs-cache-max-age 1h --dir-cache-time 96h --poll-interval 30s --tpslimit 10 --tpslimit-burst 10"
 )
 
@@ -49,93 +49,90 @@ func ExpandTilde(path string) string {
 	return path
 }
 
+func SanitizeBisyncFlags(flags string) string {
+	fields := strings.Fields(flags)
+	sanitized := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if field != "--resync" {
+			sanitized = append(sanitized, field)
+		}
+	}
+	if len(sanitized) == 0 {
+		return DefaultBisyncFlags
+	}
+	result := strings.Join(sanitized, " ")
+	if !strings.Contains(result, "--drive-skip-dangling-shortcuts") {
+		result += " --drive-skip-dangling-shortcuts"
+	}
+	return result
+}
+
 func LoadProfiles() ([]*ConnectorProfile, error) {
-	f, err := os.Open(ProfilesPath())
+	cfg, err := ini.Load(ProfilesPath())
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	defer f.Close()
 
 	var profiles []*ConnectorProfile
-	var current *ConnectorProfile
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+	for _, section := range cfg.Sections() {
+		if section.Name() == ini.DefaultSection {
 			continue
 		}
-		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-			sectionName := strings.TrimSpace(line[1 : len(line)-1])
-			current = &ConnectorProfile{
-				Name:        sectionName,
-				Remote:      sectionName + ":/",
-				Mode:        "hybrid",
-				Enabled:     true,
-				BisyncFlags: DefaultBisyncFlags,
-				MountFlags:  DefaultMountFlags,
-			}
-			profiles = append(profiles, current)
-			continue
-		}
-		if current != nil && strings.Contains(line, "=") {
-			parts := strings.SplitN(line, "=", 2)
-			key := strings.TrimSpace(parts[0])
-			val := strings.TrimSpace(parts[1])
 
-			switch key {
-			case "remote":
-				current.Remote = val
-			case "mode":
-				current.Mode = val
-			case "enabled":
-				if enabled, err := strconv.ParseBool(val); err == nil {
-					current.Enabled = enabled
-				}
-			case "local_dir":
-				current.LocalDir = ExpandTilde(val)
-			case "virtual_mount":
-				current.VirtualMount = ExpandTilde(val)
-			case "bisync_flags":
-				current.BisyncFlags = val
-			case "mount_flags":
-				current.MountFlags = val
-			case "virtual_items":
-				if val != "" {
-					for _, item := range strings.Split(val, ",") {
-						if trimmed := strings.TrimSpace(item); trimmed != "" {
-							current.VirtualItems = append(current.VirtualItems, trimmed)
-						}
-					}
+		current := &ConnectorProfile{
+			Name:        section.Name(),
+			Remote:      section.Name() + ":/",
+			Mode:        "hybrid",
+			Enabled:     true,
+			BisyncFlags: DefaultBisyncFlags,
+			MountFlags:  DefaultMountFlags,
+		}
+		current.Remote = section.Key("remote").MustString(current.Remote)
+		current.Mode = section.Key("mode").MustString(current.Mode)
+		current.Enabled = section.Key("enabled").MustBool(true)
+		current.LocalDir = ExpandTilde(section.Key("local_dir").MustString(""))
+		current.VirtualMount = ExpandTilde(section.Key("virtual_mount").MustString(""))
+		current.BisyncFlags = SanitizeBisyncFlags(section.Key("bisync_flags").MustString(DefaultBisyncFlags))
+		current.MountFlags = section.Key("mount_flags").MustString(DefaultMountFlags)
+
+		if virtualItems := strings.TrimSpace(section.Key("virtual_items").MustString("")); virtualItems != "" {
+			for _, item := range strings.Split(virtualItems, ",") {
+				if trimmed := strings.TrimSpace(item); trimmed != "" {
+					current.VirtualItems = append(current.VirtualItems, trimmed)
 				}
 			}
 		}
+		profiles = append(profiles, current)
 	}
-	return profiles, scanner.Err()
+	return profiles, nil
 }
 
 func SaveProfiles(profiles []*ConnectorProfile) error {
 	_ = os.MkdirAll(filepath.Dir(ProfilesPath()), 0755)
-	var sb strings.Builder
+	cfg := ini.Empty()
 
-	for i, p := range profiles {
-		if i > 0 {
-			sb.WriteString("\n")
+	for _, p := range profiles {
+		p.BisyncFlags = SanitizeBisyncFlags(p.BisyncFlags)
+		section, err := cfg.NewSection(p.Name)
+		if err != nil {
+			return err
 		}
-		sb.WriteString(fmt.Sprintf("[%s]\n", p.Name))
-		sb.WriteString(fmt.Sprintf("remote = %s\n", p.Remote))
-		sb.WriteString(fmt.Sprintf("mode = %s\n", p.Mode))
-		sb.WriteString(fmt.Sprintf("enabled = %t\n", p.Enabled))
-		sb.WriteString(fmt.Sprintf("local_dir = %s\n", p.LocalDir))
-		sb.WriteString(fmt.Sprintf("virtual_mount = %s\n", p.VirtualMount))
-		sb.WriteString(fmt.Sprintf("bisync_flags = %s\n", p.BisyncFlags))
-		sb.WriteString(fmt.Sprintf("mount_flags = %s\n", p.MountFlags))
-		sb.WriteString(fmt.Sprintf("virtual_items = %s\n", strings.Join(p.VirtualItems, ", ")))
+		section.Key("remote").SetValue(p.Remote)
+		section.Key("mode").SetValue(p.Mode)
+		section.Key("enabled").SetValue(fmt.Sprintf("%t", p.Enabled))
+		section.Key("local_dir").SetValue(p.LocalDir)
+		section.Key("virtual_mount").SetValue(p.VirtualMount)
+		section.Key("bisync_flags").SetValue(p.BisyncFlags)
+		section.Key("mount_flags").SetValue(p.MountFlags)
+		section.Key("virtual_items").SetValue(strings.Join(p.VirtualItems, ", "))
 	}
-	return os.WriteFile(ProfilesPath(), []byte(sb.String()), 0644)
+	if err := cfg.SaveTo(ProfilesPath()); err != nil {
+		return err
+	}
+	return os.Chmod(ProfilesPath(), 0644)
 }
 
 func (p *ConnectorProfile) BuildFilterFile() (string, error) {
@@ -184,5 +181,6 @@ func (p *ConnectorProfile) RemoveVirtualItem(relPath string) {
 			updated = append(updated, existing)
 		}
 	}
+
 	p.VirtualItems = updated
 }

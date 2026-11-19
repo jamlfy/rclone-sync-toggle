@@ -40,3 +40,21 @@ func TestInitFallsBackToSpanishForUnsupportedSystemLocale(t *testing.T) {
 		t.Errorf("T(ui.manager_title) = %q, want %q", got, want)
 	}
 }
+
+func TestLoggerStringsRemainEnglish(t *testing.T) {
+	if err := Init("es"); err != nil {
+		t.Fatalf("Init(es) returned an error: %v", err)
+	}
+	if got, want := Log("daemon.started"), "Daemon started with %d active mapping(s)."; got != want {
+		t.Errorf("Log(daemon.started) = %q, want %q", got, want)
+	}
+}
+
+func TestPOTranslationsLoad(t *testing.T) {
+	if err := Init("es"); err != nil {
+		t.Fatalf("Init(es) returned an error: %v", err)
+	}
+	if got, want := T("ui.manager_title"), "Gestionar Carpetas en Nube"; got != want {
+		t.Errorf("T(ui.manager_title) = %q, want %q", got, want)
+	}
+}

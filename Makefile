@@ -37,7 +37,7 @@ install: build
 	install -m 755 $(BINARY_NAME) $(INSTALL_DIR)/$(BINARY_NAME)
 	chmod +x $(INSTALL_DIR)/$(BINARY_NAME)
 
-	@printf '[Unit]\nDescription=Daemon de Sincronizacion Multiconector Rclone\nAfter=network-online.target graphical-session.target\nWants=network-online.target\n\n[Service]\nType=simple\nPassEnvironment=DISPLAY DBUS_SESSION_BUS_ADDRESS XAUTHORITY LANG LC_ALL\nExecStart=%s/%s\nRestart=always\nRestartSec=5\n\n[Install]\nWantedBy=default.target\n' "$(INSTALL_DIR)" "$(BINARY_NAME)" > $(SYSTEMD_DIR)/rclone-sync-toggle.service
+	@printf '[Unit]\nDescription=Daemon de Sincronizacion Multiconector Rclone\nAfter=network-online.target graphical-session.target\nWants=network-online.target\n\n[Service]\nType=simple\nPassEnvironment=DISPLAY DBUS_SESSION_BUS_ADDRESS XAUTHORITY LANG LC_ALL\nExecStart=%s/%s\nRestart=on-failure\nRestartSec=5\n\n[Install]\nWantedBy=default.target\n' "$(INSTALL_DIR)" "$(BINARY_NAME)" > $(SYSTEMD_DIR)/rclone-sync-toggle.service
 
 	@printf '#!/bin/bash\nwhile IFS= read -r FILE_PATH; do\n    if [ -n "$$FILE_PATH" ]; then\n        "%s/%s" --toggle "$$FILE_PATH"\n    fi\ndone <<< "$$NAUTILUS_SCRIPT_SELECTED_FILE_PATHS"\n' "$(INSTALL_DIR)" "$(BINARY_NAME)" > "$(NAUTILUS_DIR)/No mantenerlo en el disco duro"
 	chmod +x "$(NAUTILUS_DIR)/No mantenerlo en el disco duro"

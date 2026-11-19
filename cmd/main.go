@@ -32,10 +32,10 @@ func main() {
 
 	profiles, err := config.LoadProfiles()
 	if err != nil {
-		log.Fatalf(i18n.T("config.read_error"), err)
+		log.Fatalf(i18n.Log("config.read_error"), err)
 	}
 	if len(profiles) == 0 {
-		log.Fatalf(i18n.T("config.empty"), config.ProfilesPath())
+		log.Printf(i18n.Log("config.empty"), config.ProfilesPath())
 	}
 
 	var activeProfiles []*config.ConnectorProfile
@@ -62,8 +62,8 @@ func main() {
 		}(p)
 	}
 
-	log.Printf(i18n.T("daemon.started"), len(activeProfiles))
+	log.Printf(i18n.Log("daemon.started"), len(activeProfiles))
 	<-ctx.Done()
-	log.Println(i18n.T("daemon.stopping"))
+	log.Println(i18n.Log("daemon.stopping"))
 	wg.Wait()
 }

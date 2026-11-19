@@ -38,3 +38,19 @@ func TestProfileEnabledDefaultsOnAndPersists(t *testing.T) {
 		t.Fatal("disabled profile was saved as enabled")
 	}
 }
+
+func TestSanitizeBisyncFlagsRemovesPersistentResync(t *testing.T) {
+	got := SanitizeBisyncFlags("--fast-list --resync --drive-skip-dangling-shortcuts")
+	want := "--fast-list --drive-skip-dangling-shortcuts"
+	if got != want {
+		t.Fatalf("sanitize result = %q, want %q", got, want)
+	}
+}
+
+func TestSanitizeBisyncFlagsAddsDanglingShortcutProtection(t *testing.T) {
+	got := SanitizeBisyncFlags("--fast-list --tpslimit 5")
+	want := "--fast-list --tpslimit 5 --drive-skip-dangling-shortcuts"
+	if got != want {
+		t.Fatalf("sanitize result = %q, want %q", got, want)
+	}
+}

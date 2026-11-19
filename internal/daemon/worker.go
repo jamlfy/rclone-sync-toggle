@@ -29,7 +29,7 @@ func RunWorker(ctx context.Context, p *config.ConnectorProfile) {
 	_ = os.MkdirAll(p.LocalDir, 0755)
 
 	if p.Mode == "virtual" {
-		log.Printf("[%s] %s", p.Name, fmt.Sprintf(i18n.T("worker.virtual_mode"), p.LocalDir, p.Remote))
+		log.Printf("[%s] %s", p.Name, fmt.Sprintf(i18n.Log("worker.virtual_mode"), p.LocalDir, p.Remote))
 		superviseMount(ctx, p.Name, p.Remote, p.LocalDir, p.MountFlags)
 		return
 	}
@@ -42,13 +42,13 @@ func RunWorker(ctx context.Context, p *config.ConnectorProfile) {
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		log.Printf("[%s] %s", p.Name, fmt.Sprintf(i18n.T("worker.watcher_start_error"), err))
+		log.Printf("[%s] %s", p.Name, fmt.Sprintf(i18n.Log("worker.watcher_start_error"), err))
 		return
 	}
 	defer watcher.Close()
 
 	if err := addRecursive(watcher, p); err != nil {
-		log.Printf("[%s] %s", p.Name, fmt.Sprintf(i18n.T("worker.scan_error"), err))
+		log.Printf("[%s] %s", p.Name, fmt.Sprintf(i18n.Log("worker.scan_error"), err))
 	}
 
 	pollTicker := time.NewTicker(pollInterval)
@@ -57,7 +57,7 @@ func RunWorker(ctx context.Context, p *config.ConnectorProfile) {
 	var debounceTimer *time.Timer
 	triggerChan := make(chan struct{}, 1)
 
-	log.Printf("[%s] %s", p.Name, fmt.Sprintf(i18n.T("worker.hybrid_mode"), p.LocalDir, p.Remote))
+	log.Printf("[%s] %s", p.Name, fmt.Sprintf(i18n.Log("worker.hybrid_mode"), p.LocalDir, p.Remote))
 
 	for {
 		select {
@@ -92,7 +92,7 @@ func RunWorker(ctx context.Context, p *config.ConnectorProfile) {
 			if !ok {
 				return
 			}
-			log.Printf("[%s] %s", p.Name, fmt.Sprintf(i18n.T("worker.watcher_error"), err))
+			log.Printf("[%s] %s", p.Name, fmt.Sprintf(i18n.Log("worker.watcher_error"), err))
 
 		case <-triggerChan:
 			go RunBisync(p, false)
@@ -111,7 +111,7 @@ func RunBisync(p *config.ConnectorProfile, isResync bool) {
 
 	filterPath, err := p.BuildFilterFile()
 	if err != nil {
-		log.Printf("[%s] %s", p.Name, fmt.Sprintf(i18n.T("worker.filter_error"), err))
+		log.Printf("[%s] %s", p.Name, fmt.Sprintf(i18n.Log("worker.filter_error"), err))
 		return
 	}
 
@@ -132,15 +132,19 @@ func RunBisync(p *config.ConnectorProfile, isResync bool) {
 	outStr := string(output)
 
 	if err != nil {
-		log.Printf("[%s] %s", p.Name, fmt.Sprintf(i18n.T("worker.bisync_error"), err, outStr))
+		log.Printf("[%s] %s", p.Name, fmt.Sprintf(i18n.Log("worker.bisync_error"), err, outStr))
 		desktop.Notify("critical", "dialog-error", p.Name+i18n.T("worker.sync_failed_title"), i18n.T("worker.sync_failed"))
+		if !isResync && strings.Contains(strings.ToLower(outStr), "must run --resync to recover") {
+			log.Printf("[%s] Bisync requires resync: starting automatic recovery", p.Name)
+			go RunBisync(p, true)
+		}
 		return
 	}
 
 	if !isResync {
 		matches := changeRegex.FindAllString(outStr, -1)
 		if len(matches) > 0 {
-			msg := fmt.Sprintf(i18n.T("worker.files_updated"), len(matches))
+			msg := fmt.Sprintf(i18n.Log("worker.files_updated"), len(matches))
 			log.Printf("[%s] %s", p.Name, msg)
 			desktop.Notify("normal", "cloud-upload", p.Name+i18n.T("worker.synced"), msg)
 		}
@@ -164,13 +168,13 @@ func superviseMount(ctx context.Context, name, remote, mountPoint, mountFlags st
 		}
 
 		cmd := exec.CommandContext(ctx, "rclone", args...)
-		log.Printf("[%s] %s", name, fmt.Sprintf(i18n.T("worker.mounting"), remote, mountPoint))
+		log.Printf("[%s] %s", name, fmt.Sprintf(i18n.Log("worker.mounting"), remote, mountPoint))
 		err := cmd.Run()
 		if ctx.Err() != nil {
 			_ = unmount(mountPoint)
 			return
 		}
-		log.Printf("[%s] %s", name, fmt.Sprintf(i18n.T("worker.mount_stopped"), err))
+		log.Printf("[%s] %s", name, fmt.Sprintf(i18n.Log("worker.mount_stopped"), err))
 		time.Sleep(5 * time.Second)
 	}
 }
