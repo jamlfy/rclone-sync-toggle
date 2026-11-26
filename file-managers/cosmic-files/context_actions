@@ -1,0 +1,10 @@
+[
+    (
+        name: "Alternar disponibilidad local",
+        confirm: false,
+        selection: Any,
+        steps: [
+            "sh -c 'for p in \"$@\"; do rclone-sync-toggle --toggle \"$p\"; done' _ %F",
+        ],
+    ),
+]
