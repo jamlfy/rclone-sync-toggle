@@ -16,7 +16,7 @@ A Linux desktop utility that keeps local folders synchronized with configured Rc
 make install
 ```
 
-This builds and installs the executable under `~/.config/rclone-sync-toggle`, creates the `rclone-sync-toggle.service` user unit, adds a desktop launcher, and installs a Nautilus script for toggling selected files or folders. To build without installing, run `make build`; run `make restart` to enable and start the user service after configuring profiles.
+This builds and installs the executable under `~/.config/rclone-sync-toggle`, creates the `rclone-sync-toggle.service` user unit, adds a desktop launcher, and installs file-manager integrations from `file-managers/` (Nautilus Python extension + emblems, and COSMIC Files context action template). To build without installing, run `make build`; run `make restart` to enable and start the user service after configuring profiles. To install only file-manager integrations, run `make install-file-managers` (`make install-nautilus` / `make install-cosmic-files`).
 
 ## Debian package
 
@@ -38,7 +38,7 @@ Open the desktop launcher or run `rclone-sync-toggle --config` to create a profi
 systemctl --user enable --now rclone-sync-toggle.service
 ```
 
-Packages are built for the native `amd64` or `arm64` architecture. A package includes the application, desktop launcher, user service unit, Nautilus script, and README; it does not include personal Rclone credentials or `sync-profiles.ini`. Install Rclone and configure each remote separately on every machine.
+Packages are built for the native `amd64` or `arm64` architecture. A package includes the application, desktop launcher, user service unit, Nautilus extension/emblems, COSMIC Files context action template/docs, and README; it does not include personal Rclone credentials or `sync-profiles.ini`. Install Rclone and configure each remote separately on every machine.
 
 Open the configuration window from the desktop launcher or run:
 
